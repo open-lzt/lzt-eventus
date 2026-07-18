@@ -1,0 +1,104 @@
+[project]
+name = "lzt-eventus"
+version = "0.1.0"
+description = "Event-driven engine over the lzt.market API: poll → domain events → durable replayable log → catch-up bus, on top of the pylzt SDK."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "lzt-eventus contributors" }]
+keywords = ["lzt", "lolzteam", "marketplace", "event-engine", "webhook"]
+dependencies = [
+    # The typed SDK lives in its own repo (renamed aiolzt -> lztforge upstream); pydantic/structlog/httpx come transitively.
+    "pylzt",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "structlog>=24.1",
+]
+
+[project.optional-dependencies]
+# Durable stores + daemon runtime.
+engine = [
+    "asyncpg>=0.29",
+    "redis>=5.0",
+    "alembic>=1.13",
+    "sqlalchemy>=2.0",
+    "prometheus-client>=0.20",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    # secret_box (token-account credential encryption-at-rest, Fernet).
+    "cryptography>=42.0",
+]
+dev = [
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "locust>=2.29",
+    # scripts/autoupdate.py reads deploy/autoupdate.yml.
+    "pyyaml>=6.0",
+    "types-pyyaml>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/open-lzt/lzt-eventus"
+Repository = "https://github.com/open-lzt/lzt-eventus"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# lztforge is pulled as a direct git reference until it is published to an index.
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lzt_eventus", "libs/webhook_engine", "libs/secret_box"]
+
+[tool.ruff]
+src = ["src", "tests", "libs"]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM", "RUF"]
+# B008: FastAPI Depends() in defaults. B027: optional ABC hooks with a default
+# no-op body. B024: marker ABCs (BaseService) for type-identity/DI — all deliberate.
+ignore = ["B008", "B024", "B027"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = ["src", "libs"]
+packages = ["lzt_eventus", "webhook_engine", "secret_box"]
+warn_unreachable = true
+disallow_any_explicit = false
+
+[[tool.mypy.overrides]]
+module = ["asyncpg.*", "redis.*", "prometheus_client.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["tests"]
+# importlib mode avoids the sys.path-prepend that lets a stray tests/<pkg>/__init__.py
+# shadow the real src package (we ship no __init__.py in tests/).
+addopts = "--strict-markers --import-mode=importlib"
+markers = [
+    "e2e: full-stack end-to-end test — the gate the rolling auto-updater must pass before swapping",
+]
+
+[tool.coverage.run]
+source = ["src", "libs/webhook_engine"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.uv.sources]
+pylzt = { git = "https://github.com/open-lzt/pylzt.git", branch = "main" }

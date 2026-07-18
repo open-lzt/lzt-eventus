@@ -1,0 +1,22 @@
+# Oneshot auto-update pass for lzt-core, driven by the paired .timer.
+# Runs a single check-and-maybe-roll-out cycle (scripts/autoupdate.py --once),
+# which itself health-gates and auto-rolls-back on failure.
+#
+# Install (timer mode, alternative to the in-script --daemon loop):
+#   sudo cp deploy/lzt-core-autoupdate.service /etc/systemd/system/
+#   sudo cp deploy/lzt-core-autoupdate.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lzt-core-autoupdate.timer
+
+[Unit]
+Description=lzt-core rolling auto-update (single pass)
+After=network-online.target lzt-core.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=lzt
+Group=lzt
+WorkingDirectory=/opt/lzt-core
+EnvironmentFile=/opt/lzt-core/.env
+ExecStart=/opt/lzt-core/.venv/bin/python /opt/lzt-core/scripts/autoupdate.py --once
+TimeoutStartSec=900

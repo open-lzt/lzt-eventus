@@ -1,0 +1,37 @@
+# systemd unit for the lzt-core event-engine daemon (bare-metal / VM run mode,
+# i.e. NOT docker-compose). Postgres + Redis are expected on the same host.
+#
+# Install:
+#   sudo cp deploy/lzt-core.service /etc/systemd/system/lzt-core.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lzt-core
+# Edit WorkingDirectory / User / paths to match your deployment.
+
+[Unit]
+Description=lzt-core event engine daemon
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lzt
+Group=lzt
+WorkingDirectory=/opt/lzt-core
+EnvironmentFile=/opt/lzt-core/.env
+# uv resolves the project venv; --extra ensures engine+transport deps are present.
+ExecStartPre=/usr/bin/uv sync --frozen --extra engine
+ExecStart=/usr/bin/uv run python -m lzt_eventus run
+# Graceful: SIGTERM lets the daemon flush cursors + drain before exit.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# Hardening (least privilege).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/lzt-core
+
+[Install]
+WantedBy=multi-user.target

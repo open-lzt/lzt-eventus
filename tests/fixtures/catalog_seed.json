@@ -1,0 +1,38 @@
+{
+  "category": "steam",
+  "captured_at": "2026-01-15T12:00:00Z",
+  "page": 1,
+  "per_page": 50,
+  "items": [
+    {
+      "item_id": 100001,
+      "title": "Steam | 42 games | Level 15",
+      "price": 12.50,
+      "currency": "USD",
+      "ai_price": 18.00,
+      "published_at": "2026-01-15T11:58:00Z",
+      "seller_id": 5501,
+      "category": "steam"
+    },
+    {
+      "item_id": 100002,
+      "title": "Steam | CS2 Prime | 1200 hours",
+      "price": 34.00,
+      "currency": "USD",
+      "ai_price": 36.00,
+      "published_at": "2026-01-15T11:59:10Z",
+      "seller_id": 5502,
+      "category": "steam"
+    },
+    {
+      "item_id": 100003,
+      "title": "Steam | Dota 2 | 8k MMR",
+      "price": 55.00,
+      "currency": "USD",
+      "ai_price": 80.00,
+      "published_at": "2026-01-15T11:59:55Z",
+      "seller_id": 5503,
+      "category": "steam"
+    }
+  ]
+}

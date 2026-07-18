@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: lint · types · tests · security
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pg
+          POSTGRES_PASSWORD: pg
+          POSTGRES_DB: eventus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LZT_DATABASE_URL: postgresql://pg:pg@localhost:5432/eventus
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --extra dev --extra engine
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: Mypy (strict)
+        run: uv run mypy src
+
+      - name: Apply database migrations
+        run: uv run alembic upgrade head
+
+      - name: HTTP method discipline (web layer is POST/GET only)
+        run: |
+          web_dir="src/lzt_eventus/web"
+          if [ -d "$web_dir" ]; then
+            if grep -rnE "(methods=\[[^]]*\"(PUT|PATCH|DELETE)\"|@(put|patch|delete)\(|\.(put|patch|delete)\()" "$web_dir"; then
+              echo "::error::Forbidden HTTP verb (PUT/PATCH/DELETE) in $web_dir — use POST/GET only."
+              exit 1
+            fi
+            echo "method discipline OK ($web_dir)"
+          else
+            echo "no $web_dir yet — skipping method-discipline gate"
+          fi
+
+      - name: Tests + coverage gate (>=80%)
+        run: uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+      - name: gitleaks (no committed secrets)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: pip-audit (dependency CVEs)
+        run: uv run --with pip-audit pip-audit

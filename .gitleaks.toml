@@ -1,0 +1,46 @@
+# gitleaks config for lzt-core. Extends the upstream default ruleset and adds
+# project-specific patterns (lzt.market tokens, admin key, store DSNs).
+# Run:  gitleaks detect --config .gitleaks.toml --no-git --redact
+title = "lzt-core gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "lzt-token-assignment"
+description = "lzt.market API token assigned to LZT_TOKENS / token var"
+regex = '''(?i)(lzt_token|lzt_tokens|api[_-]?token)\s*[:=]\s*['"\[]?[A-Za-z0-9._\-]{24,}'''
+tags = ["lzt", "token"]
+
+[[rules]]
+id = "lzt-admin-api-key"
+description = "Management-API admin key"
+regex = '''(?i)LZT_ADMIN_API_KEY\s*[:=]\s*['"]?[A-Fa-f0-9]{32,}'''
+tags = ["lzt", "admin-key"]
+
+[[rules]]
+id = "lzt-jwt-like"
+description = "JWT-shaped credential (lzt.market issues JWTs)"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'''
+tags = ["jwt"]
+
+[[rules]]
+id = "lzt-postgres-dsn-with-password"
+description = "Postgres DSN carrying an inline password"
+regex = '''postgres(?:ql)?:\/\/[^:\/\s]+:[^@\/\s]+@[^\/\s]+'''
+tags = ["dsn", "postgres"]
+
+[allowlist]
+description = "Placeholders, examples and fixtures are not real secrets"
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)tests/fixtures/''',
+  '''(^|/)README\.md$''',
+  '''(^|/)deploy/autoupdate\.yml$''',
+]
+regexes = [
+  '''paste-your-token-here''',
+  '''replace-with-openssl-rand-hex-32''',
+  '''postgresql://lzt:lzt@(localhost|postgres):5432/lzt_core''',
+  '''1819571811''',
+]

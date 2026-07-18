@@ -1,0 +1,15 @@
+# Code ownership — these paths require review from the listed owner before merge.
+# Pair with branch protection on `main` (require review from Code Owners).
+
+# Core packages.
+/src/lzt_core/      @zlexdev
+/src/event_engine/  @zlexdev
+
+# CI / governance / deploy.
+/.github/           @zlexdev
+/deploy/            @zlexdev
+/scripts/           @zlexdev
+
+# Security-sensitive config.
+/.gitleaks.toml     @zlexdev
+/.env.example       @zlexdev

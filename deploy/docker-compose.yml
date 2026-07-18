@@ -1,0 +1,91 @@
+# lzt-core deploy stack: self-hosted Postgres 16 + Redis 7 + the engine daemon.
+# Env comes from ../.env (LZT_* + POSTGRES_*). Stores persist to named volumes.
+#   docker compose -f deploy/docker-compose.yml --env-file .env up -d
+name: lzt-core
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    mem_limit: ${LZT_POSTGRES_MEM_LIMIT:-350m}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lzt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lzt}
+      POSTGRES_DB: ${POSTGRES_DB:-lzt_core}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lzt} -d ${POSTGRES_DB:-lzt_core}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      # A specific, non-standard port — not 5432 — so this doesn't collide with
+      # an unrelated project's own Postgres on a shared box. Loopback-only.
+      - "127.0.0.1:${LZT_POSTGRES_PORT:-27542}:5432"
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    mem_limit: ${LZT_REDIS_MEM_LIMIT:-150m}
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      # Specific, non-standard port — not 6379 — for the same reason as postgres.
+      - "127.0.0.1:${LZT_REDIS_PORT:-27541}:6379"
+
+  engine:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      secrets:
+        - gh_token
+    restart: unless-stopped
+    mem_limit: ${LZT_ENGINE_MEM_LIMIT:-350m}
+    env_file: ../.env
+    environment:
+      # Unconditional — NOT `${LZT_DATABASE_URL:-...}`. A `:-` fallback here would
+      # let a shell-exported LZT_DATABASE_URL (e.g. from a script that ran
+      # load_env before calling `compose`) win over this default, since compose
+      # var-substitution prefers the invoking shell's environment over both
+      # --env-file and this file's own default — silently pointing the container
+      # at .env's bare-metal `localhost:5432` DSN instead of the compose network.
+      LZT_DATABASE_URL: postgresql://${POSTGRES_USER:-lzt}:${POSTGRES_PASSWORD:-lzt}@postgres:5432/${POSTGRES_DB:-lzt_core}
+      LZT_REDIS_URL: redis://redis:6379/0
+      LZT_HEALTH_HOST: 0.0.0.0
+      LZT_HEALTH_PORT: ${LZT_HEALTH_PORT:-27543}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      # Loopback-only: the admin API + inbound webhook carry no TLS on their own.
+      # For a public domain, scripts/setup_tls.sh fronts this with host nginx +
+      # certbot (see docs/deploy.md) — reused whether or not nginx already serves
+      # other sites on this host. Otherwise reach it via an SSH tunnel.
+      - "127.0.0.1:${LZT_HEALTH_PORT:-27543}:${LZT_HEALTH_PORT:-27543}"
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "scripts/health.py", "--retries", "1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  pgdata:
+  redisdata:
+
+# Build-time only: the GitHub token for the private `aiolzt` git dependency,
+# read from the GH_TOKEN env var at `compose build` time. Never stored in an
+# image layer (see deploy/Dockerfile). Empty/unset → anonymous clone.
+secrets:
+  gh_token:
+    environment: GH_TOKEN

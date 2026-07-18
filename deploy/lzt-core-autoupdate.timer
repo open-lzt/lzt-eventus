@@ -1,0 +1,16 @@
+# Drives lzt-core-autoupdate.service on an interval. Default: every 5 minutes,
+# matching autoupdate.yml poll_interval. Adjust OnUnitActiveSec to taste.
+
+[Unit]
+Description=Schedule lzt-core rolling auto-update checks
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Spread load if many hosts share a schedule; survives downtime.
+RandomizedDelaySec=30
+Persistent=true
+Unit=lzt-core-autoupdate.service
+
+[Install]
+WantedBy=timers.target

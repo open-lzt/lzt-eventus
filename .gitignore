@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+*.local
+
+# Auto-generated module docs — regenerate via docskill, never versioned
+**/_MODULE_AUTO.md
+
+# Unverified AS7-schema draft skeletons — regenerate via dev/gen_lzt_method.py --all,
+# review one domain at a time and move confirmed methods into src/lzt_core/methods/
+dev/generated/
+
+# Planning artifacts — working notes, not shipped docs. Current architecture
+# lives in docs/architecture.md instead (see .plans removal in git history).
+.plans/

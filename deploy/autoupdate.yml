@@ -1,0 +1,49 @@
+# lzt-core auto-updater config. Consumed by scripts/autoupdate.sh.
+# The updater polls a git ref; when the host falls behind, it runs a rolling
+# update (pull -> uv sync -> alembic upgrade -> restart) gated on /healthz, with
+# automatic rollback on health failure. Disabled by default — opt in explicitly.
+
+# Master switch. Nothing happens unless this is true.
+enabled: false
+
+# Seconds between checks when running as a loop (scripts/autoupdate.sh --daemon).
+# The systemd .timer mirrors this; keep them in sync if you use the timer.
+poll_interval: 300
+
+# Git ref to track: a branch (rolling) or a tag (pinned release line).
+channel: stable
+git_ref: master
+
+# Remote to fetch from. "origin" uses the checkout's existing remote.
+repo_url: origin
+
+# Only "rolling" is implemented (one host, health-gated restart, rollback on fail).
+strategy: rolling
+
+# Always migrate the DB as part of a rollout.
+migrate: true
+
+# Pre-swap E2E gate. update.sh runs the hermetic `pytest -m e2e` suite against the
+# freshly-pulled code BEFORE migrating or restarting; if a single e2e test fails the
+# rollout is aborted and the running version is kept untouched. Strongly recommended
+# — this is the safety net that stops a broken commit from ever reaching the daemon.
+e2e_gate: true
+
+# Health gate the rollout must pass before the update is considered good.
+health_gate:
+  url: http://127.0.0.1:27543/healthz
+  timeout: 3      # per-request seconds
+  retries: 30     # attempts before declaring the rollout unhealthy
+  interval: 2     # seconds between attempts
+
+# Revert to the previous commit (and one migration step) if the health gate fails.
+rollback_on_failure: true
+
+# Optional maintenance window (UTC HH:MM). Empty start/end => update any time.
+window:
+  start: ""
+  end: ""
+
+# Optional notification webhook (Slack/Discord-style {"text": ...} POST).
+notify:
+  webhook: ""
