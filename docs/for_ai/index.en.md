@@ -16,8 +16,7 @@ have to reverse-engineer the tree from scratch.
   root. `build()` (Postgres/Redis daemon) vs `build_memory()` (embedded, zero-infra, live-polling).
 - [`src/lzt_eventus/devkit/_MODULE.md`](../../src/lzt_eventus/devkit/_MODULE.md) — `local_eventus()`,
   the one-call quickstart that stands up a real engine **and** its management API on an ephemeral
-  port for scripts/examples/tests. Progressive-disclosure sibling of `build_memory()` — see
-  `~/.claude/skills/library-design/SKILL.md` Law 30 if you're extending this pattern elsewhere.
+  port for scripts/examples/tests. Progressive-disclosure sibling of `build_memory()`.
 - [`src/lzt_eventus/web/`](../../src/lzt_eventus/web/) — the management API (FastAPI): routes,
   DTOs, subscription/token-account repos. **Wire-contract-frozen** — see
   [`../../AGENTS.md`](../../AGENTS.md) before touching routes/DTOs/error-codes/SSE-WS-webhook

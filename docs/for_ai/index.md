@@ -19,8 +19,7 @@
 - [`src/lzt_eventus/devkit/_MODULE.md`](../../src/lzt_eventus/devkit/_MODULE.md) — `local_eventus()`,
   быстрый старт в один вызов, который поднимает реальный движок **и** его management API на
   эфемерном порту для скриптов/примеров/тестов. Сосед `build_memory()` по принципу
-  progressive-disclosure — см. `~/.claude/skills/library-design/SKILL.md` Law 30, если
-  расширяешь этот паттерн где-то ещё.
+  progressive-disclosure.
 - [`src/lzt_eventus/web/`](../../src/lzt_eventus/web/) — management API (FastAPI): роуты,
   DTO, репозитории подписок/токен-аккаунтов. **Wire-контракт заморожен** — смотри
   [`../../AGENTS.md`](../../AGENTS.md) перед изменением роутов/DTO/кодов ошибок/формата

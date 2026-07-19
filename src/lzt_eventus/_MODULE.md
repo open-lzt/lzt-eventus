@@ -3,7 +3,7 @@
 Poll → domain events → durable replayable log → catch-up bus. See `_MODULE_AUTO.md`
 for the generated per-submodule surface listing.
 
-## Placement rules (layering audit, plan `.plans/eventus-layering-fixes/`)
+## Placement rules (layering audit)
 
 - **`GuaranteeSeeder(BaseConsumer)` lives in `sources/guarantee.py`**, not in
   `consumers/`, even though it subclasses `BaseConsumer`. It's colocated by
