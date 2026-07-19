@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+
 def _resolve_testnet_repo() -> Path:
     """Locate the lzt-testnet package dir. Prefer the monorepo sibling (`projects/testnet`);
     fall back to the standalone sibling clone so the fixture works in both layouts."""

@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pylzt.types import Category
 from pydantic import SecretStr
+from pylzt.types import Category
 from starlette.websockets import WebSocketDisconnect
 
 from eventus_fakes import fake_engine_handle

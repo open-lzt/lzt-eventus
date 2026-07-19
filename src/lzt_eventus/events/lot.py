@@ -11,8 +11,8 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import ClassVar
 
-from pylzt.models.lot import Lot
 from pydantic import Field
+from pylzt.models.lot import Lot
 
 from lzt_eventus.events.base import DomainEvent, EventType
 

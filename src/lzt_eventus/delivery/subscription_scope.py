@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pylzt.types import Category
 from pydantic import BaseModel, Field
+from pylzt.types import Category
 
 from lzt_eventus.events.base import EventType
 

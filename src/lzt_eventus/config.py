@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pylzt.types import Category
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pylzt.types import Category
 
 
 @dataclass(frozen=True, slots=True)

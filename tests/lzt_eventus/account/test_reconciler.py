@@ -6,9 +6,9 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
+from pydantic import SecretStr
 from pylzt.client import Client
 from pylzt.lib.clock import FakeClock
-from pydantic import SecretStr
 
 from eventus_fakes import build_fake_engine
 from lzt_eventus.account.reconciler import AccountReconciler, seed_lzt_tokens

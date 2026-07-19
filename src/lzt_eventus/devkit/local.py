@@ -22,8 +22,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from pylzt.client import Client
 from pydantic import SecretStr
+from pylzt.client import Client
 
 from lzt_eventus.account.reconciler import AccountReconciler
 from lzt_eventus.config import EngineConfig

@@ -11,10 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from pydantic import ValidationError
 from pylzt.client import Client
 from pylzt.errors import LztError
 from pylzt.types import ItemId
-from pydantic import ValidationError
 
 
 @dataclass(frozen=True, slots=True)

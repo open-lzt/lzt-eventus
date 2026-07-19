@@ -7,9 +7,9 @@ decision #10 / task `T6-rating-rotation-wiring`.
 
 from __future__ import annotations
 
+from pydantic import SecretStr
 from pylzt.methods.users import GetSelfProfile
 from pylzt.models.profile import Profile
-from pydantic import SecretStr
 
 from eventus_fakes import build_fake_engine
 from lzt_eventus.config import EngineConfig

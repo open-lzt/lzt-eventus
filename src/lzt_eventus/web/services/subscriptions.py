@@ -161,7 +161,8 @@ class SubscriptionAdminService(BaseService):
             changes["event_types"] = parse_event_types(spec.event_types)
         if spec.scope is not None:
             changes["scope"] = await self._resolve_scope(
-                spec.scope, changes.get("event_types", current.event_types)  # type: ignore[arg-type]
+                spec.scope,
+                changes.get("event_types", current.event_types),  # type: ignore[arg-type]
             )
         if spec.active is not None:
             changes["active"] = spec.active

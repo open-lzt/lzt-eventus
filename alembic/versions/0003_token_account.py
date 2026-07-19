@@ -30,9 +30,7 @@ def upgrade() -> None:
         "token_account",
         sa.Column("account_id", sa.String(64), primary_key=True),
         sa.Column("token_ciphertext", sa.LargeBinary(), nullable=False),
-        sa.Column(
-            "metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'")
-        ),
+        sa.Column("metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'")),
         sa.Column(
             "categories",
             postgresql.ARRAY(sa.String()),

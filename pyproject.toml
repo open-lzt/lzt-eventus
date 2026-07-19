@@ -68,6 +68,8 @@ ignore = ["B008", "B024", "B027"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B", "SIM"]
+# Migrations carry inline SQL literals whose lines can't wrap without garbling the SQL.
+"alembic/versions/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"

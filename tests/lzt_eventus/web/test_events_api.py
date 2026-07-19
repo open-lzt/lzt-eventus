@@ -6,8 +6,8 @@ import asyncio
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
-from pylzt.types import Category
 from pydantic import SecretStr
+from pylzt.types import Category
 
 from eventus_fakes import fake_engine_handle
 from lzt_eventus.baseline.store import LastSeenBatch

@@ -9,10 +9,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from pydantic import SecretStr
 from pylzt.models.lot import Lot, LotFilter
 from pylzt.pagination import Page, Paginator
 from pylzt.types import Category, Currency, ItemId, ItemOrigin, SellerId
-from pydantic import SecretStr
 
 from lzt_eventus.config import EngineConfig
 from lzt_eventus.consumers.logging_consumer import LoggingConsumer

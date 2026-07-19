@@ -8,10 +8,10 @@ HTTP surface, and a domain event comes out the other end.
 from __future__ import annotations
 
 import pytest
+from pydantic import SecretStr
 from pylzt.client import Client
 from pylzt.config import ClientConfig
 from pylzt.types import Category
-from pydantic import SecretStr
 
 from fixtures.testnet_server import testnet_server
 from lzt_eventus.config import EngineConfig

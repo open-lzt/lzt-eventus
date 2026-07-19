@@ -58,11 +58,15 @@ async def autobuy_from_new_lots(
             scope=CategoryScope(category=category),
         )
         while len(results) < limit:
-            batch = await mgmt.poll_pending(sub.subscription_id, event_type=[EventType.NEW_LOT], limit=100)
+            batch = await mgmt.poll_pending(
+                sub.subscription_id, event_type=[EventType.NEW_LOT], limit=100
+            )
             for event in batch.items:
                 lot = event.data["lot"]
                 if Decimal(str(lot["price"])) <= budget:
-                    results.append(await buyer.buy(ItemId(lot["item_id"]), Decimal(str(lot["price"]))))
+                    results.append(
+                        await buyer.buy(ItemId(lot["item_id"]), Decimal(str(lot["price"])))
+                    )
             if batch.items:
                 await mgmt.confirm_read(sub.subscription_id, up_to_seq=batch.next_seq)
             else:

@@ -11,10 +11,10 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from pylzt.models.lot import Lot, LotFilter
 from pylzt.pagination import Page, Paginator
 from pylzt.types import Category, Currency, ItemId, ItemOrigin, SellerId
-from pydantic import SecretStr
 
 from eventus_fakes import build_fake_engine, fake_engine_handle
 from lzt_eventus.config import EngineConfig

@@ -18,9 +18,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import ClassVar, Final
 
-from pylzt.models.notification import Notification
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_core import ErrorDetails
+from pylzt.models.notification import Notification
 
 from lzt_eventus.errors import EngineError
 from lzt_eventus.events.account import ClaimFiled, DisputeOpened

@@ -15,6 +15,7 @@ import os
 from collections.abc import AsyncIterator
 
 import pytest
+from pydantic import SecretStr
 from pylzt.client import Client
 from pylzt.methods.balances import GetBalances
 from pylzt.methods.conversations import ListConversationMessages, ListConversations
@@ -23,7 +24,6 @@ from pylzt.methods.payments import ListPayments
 from pylzt.methods.users import GetSelfProfile
 from pylzt.models.lot import LotFilter
 from pylzt.types import Category
-from pydantic import SecretStr
 
 from eventus_fakes import build_fake_engine
 from lzt_eventus.config import EngineConfig

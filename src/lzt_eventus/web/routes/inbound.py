@@ -18,8 +18,8 @@ import hmac
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
-from pylzt.types import Category
 from pydantic import BaseModel, ConfigDict, ValidationError
+from pylzt.types import Category
 
 from lzt_eventus.baseline.store import LastSeenBatch
 from lzt_eventus.events.base import AggregateId, DomainEvent, EventType, make_event_id
