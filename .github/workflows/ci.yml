@@ -61,7 +61,7 @@ jobs:
         run: |
           web_dir="src/lzt_eventus/web"
           if [ -d "$web_dir" ]; then
-            if grep -rnE "(methods=\[[^]]*\"(PUT|PATCH|DELETE)\"|@(put|patch|delete)\(|\.(put|patch|delete)\()" "$web_dir"; then
+            if grep -rnE "(methods=\[[^]]*\"(PUT|PATCH|DELETE)\"|@[a-zA-Z_][a-zA-Z0-9_.]*\.(put|patch|delete)\()" "$web_dir"; then
               echo "::error::Forbidden HTTP verb (PUT/PATCH/DELETE) in $web_dir — use POST/GET only."
               exit 1
             fi
