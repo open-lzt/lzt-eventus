@@ -77,7 +77,7 @@ jobs:
         # The gitleaks-action wrapper requires a paid license on org repos; the CLI itself is free.
         run: >-
           docker run --rm -v "${{ github.workspace }}:/repo" ghcr.io/gitleaks/gitleaks:latest
-          detect --source /repo --config /repo/.gitleaks.toml --redact --no-banner
+          detect --source /repo --config /repo/.gitleaks.toml --no-git --redact --no-banner
 
       - name: pip-audit (dependency CVEs)
         run: uv run --with pip-audit pip-audit

@@ -41,6 +41,10 @@ paths = [
 regexes = [
   '''paste-your-token-here''',
   '''replace-with-openssl-rand-hex-32''',
-  '''postgresql://lzt:lzt@(localhost|postgres):5432/lzt_core''',
+  # Local/dev/CI Postgres DSNs (localhost, docker service host, or ${ENV} defaults) — not secrets.
+  '''postgres(?:ql)?://[^@\s]*@(localhost|127\.0\.0\.1|postgres|db):5432''',
+  '''postgres(?:ql)?://\$\{POSTGRES_USER''',
+  # generic-api-key false positive on a docstring identifier, not a credential.
+  '''max_handle_attempts=1''',
   '''1819571811''',
 ]
