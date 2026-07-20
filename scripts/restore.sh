@@ -29,9 +29,13 @@ PGUSER="${POSTGRES_USER:-lzt}"
 PGDB="${POSTGRES_DB:-lzt_core}"
 
 if [ "$ASSUME_YES" != 1 ]; then
+  # `-e /dev/tty` alone is true on every box, attended or not; checking our own stdin too is what
+  # tells an unattended run apart from a real terminal. This is a destructive restore, so the safe
+  # default with nobody to ask is to refuse — never silently skip the confirmation.
+  [ -t 0 ] && [ -e /dev/tty ] || die "non-interactive session — pass --yes to confirm this destructive restore without a prompt"
   warn "This will OVERWRITE database '$PGDB' from $FILE."
   printf 'Type the database name to confirm: '
-  read -r reply
+  read -r reply </dev/tty
   [ "$reply" = "$PGDB" ] || die "confirmation mismatch — aborted"
 fi
 

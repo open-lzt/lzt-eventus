@@ -5,7 +5,7 @@
 ## Install
 
 ```bash
-pip install "git+https://github.com/zlexdev/aiolzt.git"
+pip install pylzt
 ```
 
 `import pylzt` alone opens no socket — `httpx` (the SDK's one transport, `HttpxSession`)

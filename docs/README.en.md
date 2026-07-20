@@ -29,7 +29,7 @@ The README is the entry door; this is the house. Everything a consumer imports i
 ## Install
 
 ```bash
-pip install "git+https://github.com/zlexdev/aiolzt.git"                            # the pylzt SDK alone
+pip install pylzt                                                                    # the pylzt SDK alone
 pip install "lzt-eventus[engine] @ git+https://github.com/open-lzt/lzt-eventus.git"  # + durable stores + daemon runtime (postgres/redis/fastapi)
 ```
 

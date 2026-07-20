@@ -5,7 +5,7 @@
 ## Установка
 
 ```bash
-pip install "git+https://github.com/open-lzt/pylzt.git"
+pip install pylzt
 ```
 
 Сам по себе `import pylzt` не открывает ни одного сокета — `httpx` (единственный

@@ -83,17 +83,30 @@ fi
 cp .env.example .env
 ok "seeded .env from .env.example"
 
-# read_secret <prompt> — hidden input (terminal echo off), printed to stdout.
+# Answered in exactly one place: may this run stop and wait for a human? `-e /dev/tty` alone is
+# true on every box, attended or not — checking our own stdin too is what tells an unattended
+# run (piped, cron, CI) apart from a real terminal, so it skips the prompt instead of hanging.
+interactive() { [[ -t 0 && -e /dev/tty ]]; }
+
+# read_secret <prompt> — hidden input (terminal echo off), printed to stdout. Empty if non-interactive.
 read_secret() {
-  local prompt="$1" value
-  read -r -s -p "$prompt" value >&2
-  echo >&2
+  local prompt="$1" value=""
+  if interactive; then
+    read -r -s -p "$prompt" value </dev/tty
+    echo >&2
+  else
+    warn "non-interactive session — skipping prompt ($prompt)"
+  fi
   printf '%s' "$value"
 }
-# read_plain <prompt> — visible input, printed to stdout.
+# read_plain <prompt> — visible input, printed to stdout. Empty if non-interactive.
 read_plain() {
-  local prompt="$1" value
-  read -r -p "$prompt" value
+  local prompt="$1" value=""
+  if interactive; then
+    read -r -p "$prompt" value </dev/tty
+  else
+    warn "non-interactive session — skipping prompt ($prompt)"
+  fi
   printf '%s' "$value"
 }
 
