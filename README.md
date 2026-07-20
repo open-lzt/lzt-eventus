@@ -3,7 +3,7 @@
 <p align="right"><a href="README.en.md">English</a> · <b>Русский</b></p>
 
 <p align="center">
-  <strong>Self-hosted событийный слой поверх poll-only API lzt.market — поллинг, диффинг, персистентность, воспроизведение.</strong>
+  <strong>Self-hosted событийный слой поверх poll-only API lzt.market.</strong>
 </p>
 
 <p align="center">
@@ -11,146 +11,177 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License"></a>
 </p>
 
-**lzt-eventus** — self-hosted event engine, который превращает poll-only каталожный API
-[lzt.market](https://lzt.market) в доменные события с durable, воспроизводимым логом —
-чтобы любое число подписчиков могло реагировать (in-process, webhook, SSE/WS или pull-poll)
-без необходимости самостоятельно поллить маркетплейс или терять события при рестарте.
+У lzt.market нет вебхуков. Есть только каталог, который можно опрашивать.
 
-[Полная документация](docs/README.md) · [Доки для AI-агентов](docs/for_ai/index.md) ·
-[Быстрый старт](docs/usage/quickstart.md) · [Архитектура](docs/architecture.md) ·
-[Расширение](docs/extending.md) · [Правовая информация / ToS](docs/legal.md)
+**Poll-only** — значит: хочешь знать, что появился лот, опрашивай выдачу сам, в цикле, и сам замечай, что изменилось.
 
-Построен на отдельном SDK [`pylzt`](https://github.com/open-lzt/pylzt):
+Этот движок делает опрос один раз — за всех.
 
-- **[`pylzt`](https://github.com/open-lzt/pylzt)** — типизированный async SDK, чьи чтения
-  каталога проходят через центральный пул токенов + rate limiter на токен, так что флот
-  листает весь каталог, ни разу не словив `429`. Живёт в своём собственном репозитории; этот
-  движок от него зависит.
-- **`lzt_eventus`** — поллеры, которые диффят снимки каталога в доменные события,
-  сохраняют их в durable append-only лог на Postgres, и catch-up шина, которая позволяет
-  любому плагину подписаться и возобновиться со своего курсора (без потерь, воспроизводимо).
-- **[`lzt-eventus-sdk`](https://github.com/open-lzt/lzt-eventus-sdk)** — Python-клиент для
-  *потребления* management API этого движка (подписки, поллинг, верификация вебхуков).
-  Только httpx, без связи со стеком Postgres/FastAPI этого репо — ставь его отдельно, если
-  пишешь webhook receiver или поллер, а не весь движок.
+Он поллит каталог, сравнивает снимки, превращает разницу в **события** и складывает их в durable-лог на Postgres.
 
-> **Правовая информация / ToS.** Только чтение каталога + автоматизация аналитики. Никакого
-> брутфорса, никакого обхода 2FA. См. [`docs/legal.md`](docs/legal.md).
+**Durable-лог** — append-only таблица: событие записано навсегда, у него есть сквозной номер `seq`, и его можно перечитать через месяц.
 
-## Быстрый старт — от клона до работающего демона
+Дальше на этот лог подписывается кто угодно: твой же процесс, вебхук на другом хосте, SSE/WS-стрим, cron-поллер.
 
-Движок — это долгоживущий демон на **self-hosted Postgres 16 + Redis 7**
-(оба запускаются на одном хосте через Docker Compose). Один скрипт всё разворачивает.
+Ловушка, которую он закрывает: **подписчик не теряет события при рестарте**. У каждого свой курсор в логе — упал, поднялся, дочитал с того места, где остановился.
 
-**Для ленивых — одна интерактивная команда:**
+[Полная документация](docs/README.md) · [Быстрый старт](docs/usage/quickstart.md) · [Архитектура](docs/architecture.md) · [Расширение](docs/extending.md) · [Доки для AI-агентов](docs/for_ai/index.md) · [Правовая информация / ToS](docs/legal.md)
+
+> **ToS.** Только чтение каталога и автоматизация аналитики. Никакого брутфорса, никакого обхода 2FA. См. [`docs/legal.md`](docs/legal.md).
+
+---
+
+## Соседние проекты
+
+Движок не ходит в маркет сам — за него это делает SDK.
+
+- **[`pylzt`](https://github.com/open-lzt/pylzt)** — типизированный async-SDK над API маркета. Пул токенов + рейт-лимитер на каждый токен, поэтому поллинг всего каталога не ловит `429`. Отдельный репозиторий, зависимость этого.
+- **[`lzt-eventus-sdk`](https://github.com/open-lzt/lzt-eventus-sdk)** — клиент к management API *этого* движка: подписки, поллинг, верификация вебхуков. Только httpx, без Postgres и FastAPI. Ставь его, если пишешь приёмник событий, а не сам движок.
+
+---
+
+## Каталог событий
+
+В `EventType` **42** имени. **31** движок эмитит сегодня; остальные 11 — зарезервированные имена без реализации, они перечислены в конце.
+
+Подписка фильтруется по этим строкам: `event_types=[EventType.NEW_LOT, ...]`.
+
+### Каталог и лоты
+
+Источник — дифф снимков выдачи.
+
+| Событие | Когда |
+|---|---|
+| `new_lot` | В выдаче появился лот, которого не было в прошлом снимке |
+| `price_dropped` | Цена лота стала ниже; в событии и старая, и новая |
+| `lot_updated` | Изменилось что-то, кроме цены |
+| `lot_disappeared` | Лот пропал из выдачи — продан или снят; догадка в поле `reason` |
+| `snapshot_initialized` | Маркер холодного старта: одно событие вместо потока `new_lot` на первом же поллинге |
+
+### Лот в сделке
+
+Источник — уведомления маркета, а не дифф.
+
+| Событие | Когда |
+|---|---|
+| `lot_reserved` | Покупатель поставил лот в холд |
+| `purchase_confirmed` | Продавец подтвердил покупку. Это **не** `item_sold` — то про деньги, это про сделку |
+
+### Деньги
+
+Операции по балансу аккаунта.
+
+| Событие | Когда |
+|---|---|
+| `income_received` | Приход на баланс |
+| `expense_recorded` | Расход с баланса |
+| `balance_refilled` | Пополнение баланса |
+| `balance_withdrawn` | Вывод с баланса |
+| `item_purchased` | Куплен товар |
+| `item_sold` | Продан товар — денежная сторона сделки |
+| `money_transferred` | Перевод отправлен |
+| `money_received` | Перевод получен |
+| `internal_purchase` | Внутренняя покупка на площадке |
+| `hold_claimed` | Забраны средства из холда |
+| `auto_payment_triggered` | Сработал автоплатёж |
+| `balance_exchanged` | Обмен валюты баланса |
+
+### Аккаунт и гарантия
+
+| Событие | Когда |
+|---|---|
+| `guarantee_expiring` | Гарантия на купленный аккаунт скоро истекает |
+| `account_invalid` | Аккаунт перестал быть валидным |
+| `dispute_opened` | Открыт спор |
+| `claim_filed` | Подана жалоба |
+
+### Диалоги, репутация, уведомления
+
+| Событие | Когда |
+|---|---|
+| `new_conversation` | Начат новый диалог |
+| `new_message` | Новое сообщение в диалоге |
+| `rating_changed` | Изменился рейтинг |
+| `market_notification_received` | Уведомление маркета |
+| `forum_notification_received` | Уведомление форума |
+
+### Инвойсы
+
+Единственная группа, которая приходит **не** поллингом, а входящим вебхуком на `POST /inbound` с проверкой HMAC.
+
+| Событие | Когда |
+|---|---|
+| `invoice_created` | Инвойс создан |
+| `invoice_paid` | Инвойс оплачен |
+| `invoice_expired` | Инвойс протух |
+
+> **Не подтверждено на реальном вебхуке.** Формат тела и схема подписи реализованы защитно, по предположению. Сверь с настоящим захваченным вебхуком, прежде чем полагаться на это в проде — см. [`web/routes/inbound.py`](src/lzt_eventus/web/routes/inbound.py).
+
+### Зарезервированные имена
+
+Есть в `EventType`, но пока не эмитятся: `payout_requested`, `transfer_held`, `transfer_cancelled`, `reserve_expired`, `purchase_cancelled`, `deal_detected`, `price_vs_ai_changed`, `inventory_revalued`, `discount_requested`, `discount_approved`, `discount_declined`.
+
+Подписаться на них можно — приходить пока нечему.
+
+Добавить своё событие: [`docs/extending.md`](docs/extending.md). Кодек безреестровый, хватает подкласса `DomainEvent` и члена в `EventType`.
+
+**Запомнить:** `event_id` детерминированный — uuid5 от `(aggregate_id, event_type, content_hash, poll_epoch)`. Один и тот же логический факт всегда даёт один и тот же id, поэтому повторный поллинг после падения не задваивает событие, а спотыкается об UNIQUE в логе.
+
+---
+
+## Быстрый старт
+
+Движок — долгоживущий демон на **Postgres 16 + Redis 7**, оба поднимаются на том же хосте через Docker Compose.
+
+Нужен токен lzt.market: https://lzt.market/account/api
+
+**В одну команду, с вопросами:**
 
 ```bash
 git clone https://github.com/open-lzt/lzt-eventus lzt-core && cd lzt-core && scripts/quickstart.sh
 ```
 
-Спрашивает токен lzt.market, опционально домен + контактный email (для автоматического
-TLS), сам генерирует admin key, затем прогоняет полную установку — зависимости, Postgres +
-Redis, миграции, демон, health gate, TLS, если настроен. В конце — отчёт: ссылка на
-health-check, admin API key, ссылка на доки.
+Спросит токен, опционально домен и email для TLS, сгенерирует admin-ключ, поставит всё и дождётся `/healthz`. В конце напечатает ключ и ссылки.
 
-**Ручной / скриптуемый путь, тот же результат:**
+**То же самое, но скриптуемо:**
 
 ```bash
 git clone https://github.com/open-lzt/lzt-eventus lzt-core
 cd lzt-core
 
-# 1. Получи API-токен lzt.market: https://lzt.market/account/api
-# 2. Бутстрап (проверка зависимостей → .env → Postgres+Redis → миграция → запуск демона):
-scripts/install.sh
+scripts/install.sh          # создаст .env из .env.example и остановится
 
-# 3. install.sh создаёт .env из .env.example при первом запуске. Отредактируй его:
-#      LZT_TOKENS=["<твой-токен>"]                 # JSON-массив, через запятую для нескольких
-#      LZT_ADMIN_API_KEY=<openssl rand -hex 32>    # admin-ключ management API
-#    затем перезапусти (идемпотентно):
-scripts/install.sh
+# впиши в .env:
+#   LZT_TOKENS=["<токен>"]                    # JSON-массив
+#   LZT_ADMIN_API_KEY=<openssl rand -hex 32>  # ключ management API
+
+scripts/install.sh          # повторно — идемпотентно
 ```
 
-Любой из путей поднимает полный стек, описанный в
-[`deploy/docker-compose.yml`](deploy/docker-compose.yml) (postgres + redis +
-образ движка, собранный из [`deploy/Dockerfile`](deploy/Dockerfile)) и
-гейтит демон по `/healthz`.
+Оба пути поднимают стек из [`deploy/docker-compose.yml`](deploy/docker-compose.yml).
 
-Управление работающим стеком:
-
-```bash
-scripts/status.sh          # здоровье движка + Postgres + Redis, развёрнутая ревизия
-scripts/logs.sh --follow   # стримить логи демона
-scripts/update.sh          # rolling-обновление: pull → sync → migrate → restart (health-gated, автооткат)
-scripts/stop.sh            # аккуратный SIGTERM
-scripts/restart.sh         # stop → start с health gate
-```
-
-### Режимы запуска
-
-| Режим | Как | Примечания |
-|---|---|---|
-| **Docker Compose** (по умолчанию) | `scripts/install.sh` | Postgres + Redis + движок все в compose; хранилища персистятся в именованные volume. |
-| **systemd** (bare-metal) | [`deploy/lzt-core.service`](deploy/lzt-core.service) | `ExecStart=uv run python -m lzt_eventus run`, `EnvironmentFile=.env`, аккуратный SIGTERM, `Restart=on-failure`. Ожидает, что Postgres + Redis уже на хосте. |
-
-### Авто-обновление (опционально)
-
-Config-driven rolling авто-апдейтер поллит git-реф и раскатывает обновления с health gate +
-автооткатом. Выключен по умолчанию — включается через
-[`deploy/autoupdate.yml`](deploy/autoupdate.yml) (`enabled: true`):
-
-```bash
-uv run python scripts/autoupdate.py --daemon   # in-process цикл поллинга
-# или альтернатива через systemd timer:
-#   deploy/lzt-core-autoupdate.service + .timer  (по умолчанию: каждые 5 минут)
-```
-
-### Домен + автоматический TLS (опционально)
-
-Задай `LZT_DOMAIN` + `LZT_ACME_EMAIL` в `.env` и перезапусти `scripts/install.sh` —
-это закроет движок host-level nginx + certbot (`scripts/setup_tls.sh`) и выпустит
-настоящий сертификат Let's Encrypt. Безопасно на общем сервере, где уже крутятся другие
-сайты (добавляет один vhost, не трогает остальные). Полный гайд:
-**[docs/deploy.md](docs/deploy.md)** (на русском) /
-**[docs/deploy.en.md](docs/deploy.en.md)** (на английском).
-
-### Запуск без Docker
+**Без Docker:**
 
 ```bash
 uv sync --extra engine
-uv run python -m lzt_eventus run            # или --dry-run для поллинга+диффинга без записи
+uv run python -m lzt_eventus run     # --dry-run: поллит и диффит, но не пишет
 ```
 
-## Управление работающим деплоем
+**Bare-metal под systemd:** [`deploy/lzt-core.service`](deploy/lzt-core.service). Ожидает, что Postgres и Redis уже на хосте.
 
-- **Мониторинг** — `scripts/status.sh` (здоровье движка + Postgres + Redis, развёрнутая
-  ревизия), `scripts/logs.sh --follow`, либо напрямую `/healthz` / `/readyz` / `/metrics`.
-- **Обновление** — `scripts/update.sh` (pull → sync → migrate → restart, health-gated,
-  автооткат при сбое).
-- **Удаление** — `docker compose -f deploy/docker-compose.yml down -v` (добавь `-v`, чтобы
-  также снести volume Postgres/Redis; опусти, чтобы сохранить данные для будущей
-  переустановки).
-- **Управление** — [management API](#management-api-волна-4) (`/subscriptions`,
-  `/events/pending`, инспекция DLQ) плюс `/scalar` для интерактивного справочника; полный
-  список скриптов ниже.
+**Домен и TLS:** задай `LZT_DOMAIN` + `LZT_ACME_EMAIL` в `.env` и перезапусти `install.sh` — поднимет nginx + certbot и выпустит Let's Encrypt. Добавляет один vhost, чужие сайты на хосте не трогает. Гайд: [`docs/deploy.md`](docs/deploy.md).
 
-## Использование
+**Авто-обновление:** выключено. Включается в [`deploy/autoupdate.yml`](deploy/autoupdate.yml) — поллит git-реф, раскатывает с health-gate и автооткатом.
 
-Это self-hosted система, а не библиотека — примеры ниже это точки интеграции с
-**работающим** движком: встрой его в свой процесс, принимай его вебхуки или поллить его
-management API. Весь I/O асинхронный. Более развёрнутые прохождения — в двух встроенных
-скиллах (`.claude/skills/lzt-integration`, `.claude/skills/lzt-extending`).
+---
 
-`lzt_eventus` поллит каталог через [`pylzt`](https://github.com/open-lzt/pylzt) —
-типизированный async SDK является отдельной зависимостью со своим README; сырые чтения
-каталога (`client.market.get_lot`, `list_lots`, пагинация, DI, обработка ошибок)
-задокументированы там, не дублируются здесь. Что относится к *этому* README — это то, что
-даёт движок поверх него: доменные события, durable лог и доставка нескольким подписчикам.
+## Как подписаться
 
-### Движок — подписка на события in-process (плагин `BaseModule`)
+Четыре транспорта, одна и та же семантика: свой курсор, catch-up после простоя, ретраи, DLQ.
 
-Встрой движок в своё приложение и реагируй на доменные события. Шина — это **catch-up**
-диспетчер: у каждого модуля стабильное `name` (его ключ курсора), и он возобновляется точно
-с того места, где остановился после рестарта.
+**DLQ** — dead-letter queue: событие, которое не удалось доставить за `LZT_MAX_HANDLE_ATTEMPTS` попыток, откладывается сюда, а не теряется и не блокирует очередь.
+
+### 1. In-process — движок внутри твоего приложения
 
 ```python
 import asyncio
@@ -164,7 +195,7 @@ from lzt_eventus.plugins.module import BaseModule, BaseSubscription
 
 
 class DealWatcher(BaseModule):
-    name = "deal-watcher"  # ← его курсорная идентичность
+    name = "deal-watcher"  # ← это и есть его курсор
 
     def __init__(self) -> None:
         self.subscriptions = [
@@ -181,140 +212,50 @@ class DealWatcher(BaseModule):
 
 
 async def main() -> None:
-    config = EngineConfig()  # читает окружение LZT_*
-    engine, _sessionmaker = EventEngine.build(config, modules=[DealWatcher()])  # на Postgres
-    await engine.run()  # супервизирует поллеры + шину до остановки
+    engine, _ = EventEngine.build(EngineConfig(), modules=[DealWatcher()])
+    await engine.run()
 
 
 asyncio.run(main())
 ```
 
-Для тестов / embed без Postgres используй in-memory хранилища (передай свой `Client`):
+`name` — это курсорная идентичность. Поменяешь строку — модуль начнёт читать лог заново.
+
+Тот же модуль, но декораторами вместо подкласса — `EventRouter("price-bot")` с `@router.on(EventType.NEW_LOT)`. Один роутер = один курсор.
+
+Модули и поллеры можно добавлять и убирать на живом `run()`: `engine.add_module(...)`, `engine.remove_poller(...)`. Курсор удалённого модуля остаётся закоммиченным, вернуть его позже безопасно.
+
+Для тестов — без Postgres:
 
 ```python
-engine = EventEngine.build_memory(EngineConfig(), client=Client(tokens=["<token>"]),
-                                                                    modules=[DealWatcher()])
-await engine.drain_once()        # один poll + одна прокачка (детерминированно, отлично для тестов)
+engine = EventEngine.build_memory(EngineConfig(), client=client, modules=[DealWatcher()])
+await engine.drain_once()   # один поллинг + одна прокачка, детерминированно
 ```
 
-### Движок — регистрация обработчиков декораторами (`EventRouter`)
-
-Предпочитаешь декораторы вместо подкласса `BaseModule`? `EventRouter` *и есть* модуль (один
-курсор), чьи обработчики привязаны через `@router.on(...)`. Регистрируется как любой другой
-модуль:
+### 2. Webhook — приёмник на другом хосте, любой язык
 
 ```python
-from lzt_eventus.events.base import DomainEvent, EventType
-from lzt_eventus.events.lot import PriceDropped
-from lzt_eventus.plugins.router import EventRouter
+from lzt_eventus_sdk import CategoryScope, EventType, ManagementClient, MarketCategory, SubscriptionTransport
 
-
-router = EventRouter("price-bot")  # name = его курсорная идентичность
-
-
-@router.on(EventType.NEW_LOT)
-async def on_new_lot(event: DomainEvent) -> None:
-    ...
-
-
-@router.on(EventType.PRICE_DROPPED, event_cls=PriceDropped)
-async def on_drop(event: DomainEvent) -> None:
-    assert isinstance(event, PriceDropped)  # сужен через event_cls
-    print(event.old_price, "→", event.new_price)
-
-
-engine.add_module(router)  # или EventEngine.build(config, modules=[router])
+async with ManagementClient("http://<host>:27543", api_key=LZT_ADMIN_API_KEY) as mgmt:
+    sub = await mgmt.create_subscription(
+        transport=SubscriptionTransport.WEBHOOK,
+        endpoint="https://you.example/hook",
+        event_types=[EventType.NEW_LOT, EventType.PRICE_DROPPED],
+        scope=CategoryScope(category=MarketCategory.STEAM),
+    )
+    print(sub.secret)  # секрет подписи — отдаётся ОДИН раз, сохрани сейчас
 ```
 
-Один обработчик может покрывать несколько типов —
-`@router.on(EventType.NEW_LOT, EventType.LOT_UPDATED)`.
+`scope` сужает то, что получит **этот** подписчик. Что движок поллит вообще — решает `LZT_CATEGORIES`, и этот пайплайн общий для всех. Скоуп, который никогда не совпадёт с `event_types` (например категория на `rating_changed`), отклоняется при создании.
 
-### Движок — добавление/удаление источников и подписчиков в рантайме
-
-Источники (поллеры) и подписчики (модули) можно менять, пока `run()` живёт — без рестарта:
-
-```python
-runner = asyncio.create_task(engine.run())
-
-engine.add_module(DealWatcher())            # подхватится на следующей прокачке шины
-engine.remove_module("deal-watcher")        # курсор остаётся закоммиченным → безопасно добавить обратно позже
-
-engine.add_poller(my_source)                # супервизор сразу запускает его задачу
-engine.remove_poller("my-source")           # его задача аккуратно останавливается
-print(engine.poller_names, engine.module_names)
-```
-
-### Движок — кастомный источник событий (`BasePoller`)
-
-```python
-from lzt_eventus.poller.base import BasePoller
-
-
-class HeartbeatPoller(BasePoller):
-    name = "heartbeat"
-
-    def __init__(self, log, bus) -> None:
-        super().__init__(min_cadence=5, max_cadence=60, cadence=10)
-        self._log, self._bus = log, bus
-
-    async def poll_once(self) -> int:
-        events = await self._scan()  # собери + верни свои экземпляры DomainEvent
-        for e in events:
-            await self._log.append(e)
-        if events:
-            self._bus.notify()
-        return len(events)
-
-
-# внедрение на этапе сборки …
-engine = EventEngine.build_memory(
-    EngineConfig(), client=client, modules=[DealWatcher()],
-    extra_pollers=[HeartbeatPoller(log=..., bus=...)]
-)
-# … или горячее добавление позже: engine.add_poller(HeartbeatPoller(...))
-```
-
-### Движок — приём событий через подписанный webhook (любой язык)
-
-Используй Python-клиент [`lzt-eventus-sdk`](https://github.com/open-lzt/lzt-eventus-sdk),
-чтобы говорить с management API — это httpx-only аналог этого репо, без притянутого
-Postgres/FastAPI (`pip install lzt-eventus-sdk`). Каждый пример ниже использует его; сырой
-`curl` работает идентично против тех же роутов для потребителей не на Python.
-
-Зарегистрируй подписку на webhook, затем проверь HMAC-подпись на своём receiver'е. Доставки
-получают catch-up + retry + DLQ так же, как in-process модули.
-
-```python
-from lzt_eventus_sdk import (
-        CategoryScope,
-        EventType,
-        ManagementClient,
-        MarketCategory,
-        SubscriptionTransport,
-)
-
-async with ManagementClient("http://<engine-host>:27543", api_key=LZT_ADMIN_API_KEY) as mgmt:
-        sub = await mgmt.create_subscription(
-                transport=SubscriptionTransport.WEBHOOK,
-                endpoint="https://you.example/hook",
-                event_types=[EventType.NEW_LOT, EventType.PRICE_DROPPED],
-                # LZT_CATEGORIES контролирует, какие категории поллит *движок* вообще — каждый
-                # подписчик разделяет этот пайплайн. `scope` сужает то, что получает *этот*
-                # подписчик среди них; отклоняется при создании, если никогда не сможет
-                # совпасть с `event_types` (например category scope на `rating_changed`) —
-                # см. SubscriptionScopeMismatch.
-                scope=CategoryScope(category=MarketCategory.STEAM),
-        )
-        print(sub.secret)  # секрет подписи для этой подписки — одноразовый, сохрани сейчас
-```
+На своей стороне проверь подпись:
 
 ```python
 from fastapi import FastAPI, Request, Response
 from lzt_eventus.delivery.signing import verify_webhook
 
-
 app = FastAPI()
-SECRET = "<секрет, возвращённый выше>"
 
 
 @app.post("/hook")
@@ -322,228 +263,159 @@ async def hook(request: Request) -> Response:
     body = await request.body()  # СЫРЫЕ байты, до парсинга
     if not verify_webhook(secret=SECRET, body=body, presented=request.headers.get("X-LZT-Signature")):
         return Response(status_code=401)
-    # де-дупликация по Idempotency-Key (доставка at-least-once), затем обработка…
-    return Response(status_code=200)  # 2xx подтверждает; не-2xx ретраится → DLQ
+    # доставка at-least-once → дедуплицируй по Idempotency-Key, потом обрабатывай
+    return Response(status_code=200)  # 2xx подтверждает; не-2xx → ретрай → DLQ
 ```
 
-### Движок — поллинг pending-событий вместо подписки (без webhook/стрима)
+### 3. SSE / WebSocket — стрим
 
-Если предпочитаешь pull, а не push (нет публичного эндпоинта для экспозиции, проще запускать
-за файрволом/cron), зарегистрируй подписку `SubscriptionTransport.POLLING` вместо
-`WEBHOOK`/`SSE`/`WEBSOCKET`. Каждая polling-подписка отслеживает **свой** курсор —
-независимые поллеры никогда не гонятся друг с другом, и можно фильтровать по `event_type` в
-каждом запросе.
+`SubscriptionTransport.SSE` или `.WEBSOCKET` при создании подписки. Остальное — как у вебхука.
+
+### 4. Polling — pull вместо push
+
+Когда наружу торчать нечем: за файрволом, из cron.
 
 ```python
 sub = await mgmt.create_subscription(
-        transport=SubscriptionTransport.POLLING,
-        endpoint="my-cron-poller",
-        event_types=[EventType.NEW_LOT, EventType.PRICE_DROPPED],
+    transport=SubscriptionTransport.POLLING,
+    endpoint="my-cron-poller",
+    event_types=[EventType.NEW_LOT],
 )
-# sub.secret / sub.stream_token оба None — polling только pull и уже гейтится
-# admin-ключом, никакого push-credential минтить не нужно.
-```
+# sub.secret и sub.stream_token оба None — поллинг уже закрыт admin-ключом,
+# push-credential минтить не нужно
 
-`poll_pending` возвращает события после закоммиченного курсора подписки. По умолчанию
-(`read_all=False`) курсор **не** продвигается — тот же батч воспроизводится при ретрае, так
-что можно инспектировать его перед коммитом:
-
-```python
-batch = await mgmt.poll_pending(sub.subscription_id, event_type=[EventType.NEW_LOT], limit=100)
+batch = await mgmt.poll_pending(sub.subscription_id, limit=100)
 for event in batch.items:
-        print(event.seq, event.event_type, event.data)
-# batch.next_seq / batch.last_read_seq / batch.drained — см. PendingBatch в lzt-eventus-sdk
+    print(event.seq, event.event_type, event.data)
+
+await mgmt.confirm_read(sub.subscription_id, up_to_seq=batch.next_seq)
 ```
 
-Подтверди то, что реально обработал, либо инлайн (`read_all=True` на `poll_pending`
-коммитит ровно просканированный батч), либо явно относительно границы `seq` — например,
-если из батча успешно обработалась только часть элементов:
+Ловушка: по умолчанию (`read_all=False`) `poll_pending` курсор **не** двигает. Тот же батч вернётся при ретрае — это нарочно, чтобы можно было посмотреть на события до коммита.
 
-```python
-last_seq = await mgmt.confirm_read(sub.subscription_id, up_to_seq=batch.next_seq)
-# идемпотентно — повторная отправка более старого/равного seq — это no-op
-```
+Подтверждать — либо инлайн (`read_all=True` коммитит ровно просканированное), либо явно через `confirm_read` по границе `seq`, если обработалась только часть. `confirm_read` идемпотентен: повтор со старым `seq` — no-op.
 
-Каждая ошибка management/polling — это типизированный конверт
-`{"error": "<code>", "detail": {...}, "request_id": "..."}` (никогда голый `HTTPException`).
-Коды, относящиеся к поллингу:
+Ошибки management API — всегда типизированный конверт `{"error": "<code>", "detail": {...}, "request_id": "..."}`, никогда голый `HTTPException`:
 
 | Код | Статус | Когда |
 |---|---|---|
-| `unknown_event_type` | 400 | Фильтр `event_type` (или `event_types` при создании) не входит в каталог `EventType`. |
-| `invalid_limit` | 400 | `limit` не положительное целое число. |
-| `limit_too_large` | 400 | `limit` превышает `LZT_MAX_QUERY_LIMIT` (по умолчанию 500). |
-| `not_a_polling_subscription` | 400 | `subscription_id` существует, но был зарегистрирован с push-транспортом. |
-| `subscription_not_found` | 404 | `subscription_id` не существует. |
+| `unknown_event_type` | 400 | Фильтра нет в каталоге `EventType` |
+| `invalid_limit` | 400 | `limit` не положительное целое |
+| `limit_too_large` | 400 | `limit` больше `LZT_MAX_QUERY_LIMIT` (по умолчанию 500) |
+| `not_a_polling_subscription` | 400 | Подписка есть, но зарегистрирована с push-транспортом |
+| `subscription_not_found` | 404 | Подписки нет |
 
-`invalid_limit`/`limit_too_large` обеспечиваются `LimitValidationMiddleware`
-([`web/middlewares/limits.py`](src/lzt_eventus/web/middlewares/limits.py)) — он читает
-`?limit=` прямо из query-строки **до** выполнения любого роута, поэтому каждый текущий и
-будущий `limit`-принимающий эндпоинт получает одинаковую границу и одинаковую форму ошибки
-бесплатно.
+Границу `limit` держит `LimitValidationMiddleware` — читает `?limit=` из query до входа в роут, поэтому любой нынешний и будущий эндпоинт получает одинаковый потолок бесплатно.
 
-### Движок — локальный devkit одним вызовом (скрипты, примеры, быстрые эксперименты)
+### Devkit — движок и его API одним `async with`
 
-`local_eventus` — быстрый старт progressive-disclosure для веб/подписочной стороны: один
-`async with` даёт реальный, живо-поллящий движок **и** его management API на эфемерном
-порту — без Postgres/Redis, без ручного подключения `EngineHandle`. Всё, что он подключает
-(`client`, `config`, `consumers`, `extra_sources`, dedup, хранилища), — тот же
-переопределяемый шов, что уже открывает `build_memory` — это просто поставляет рабочие
-дефолты для остального. См. [`examples/autobuy`](examples/autobuy) для полного потребителя
-на ~10 строк, построенного на нём.
+Для скриптов и экспериментов: живой поллящий движок + management API на эфемерном порту, без Postgres и Redis.
 
 ```python
 from lzt_eventus.devkit import local_eventus
-from pylzt.types import Category
-from lzt_eventus_sdk import CategoryScope, EventType, ManagementClient, SubscriptionTransport
-
 
 async with local_eventus(tokens=["<token>"]) as server:
     async with ManagementClient(server.base_url, api_key=server.api_key) as mgmt:
-        sub = await mgmt.create_subscription(
-            transport=SubscriptionTransport.POLLING, endpoint="quickstart",
-            event_types=[EventType.NEW_LOT], scope=CategoryScope(category=Category.TELEGRAM),
-        )
-        batch = await mgmt.poll_pending(sub.subscription_id, limit=100)
-        for event in batch.items:
-            print(event.data["lot"]["item_id"], event.data["lot"]["price"])
+        ...
 ```
 
-### Движок — замена бэкенда хранилища (наследование + внедрение)
+Полный потребитель на ~10 строк поверх него — [`examples/autobuy`](examples/autobuy).
 
-Каждое хранилище — ABC с дефолтом `Memory*` и реализацией `Postgres*` — наследуй для нового
-бэкенда и передай пакет `Stores` прямо в конструктор:
+---
 
-```python
-from lzt_eventus.engine import EventEngine, Stores
-from lzt_eventus.cursor.memory import MemoryCursorStore
-from lzt_eventus.bus.dlq import MemoryDeadLetterStore
-from lzt_eventus.baseline.store import MemoryLastSeenStore
+## Management API
 
+HTTP API под admin-ключом (`LZT_ADMIN_API_KEY`): подписки, курсоры, инспекция DLQ, `/events/pending` и `/events/read_events` для pull-поллинга.
 
-last_seen = MemoryLastSeenStore()
-stores = Stores(
-    log=MyRedisEventLog(...), last_seen=last_seen,
-    cursor=MemoryCursorStore(), dlq=MemoryDeadLetterStore()
-)
-engine = EventEngine(client=client, stores=stores, config=EngineConfig(), modules=[DealWatcher()])
-```
+**Только POST и GET** — никаких PUT/PATCH/DELETE, это проверяет CI.
 
-## Операционные скрипты
+Справочник движок хостит сам, внешний доксайт не нужен:
 
-Все под [`scripts/`](scripts/) — `set -euo pipefail`, цветной вывод, `--help`, идемпотентны.
+- `http://<host>:27543/scalar` — [Scalar](https://github.com/scalar/scalar), каждый роут и DTO можно потыкать
+- `http://<host>:27543/docs` — Swagger UI
 
-| Скрипт | Назначение |
-|---|---|
-| `quickstart.sh` | Интерактивный бутстрап в одну команду: prompt → `.env` → `install.sh` → отчёт. |
-| `install.sh` | Бутстрап в один проход: чистый хост → работающий демон. |
-| `setup_tls.sh` | Host nginx + certbot vhost/сертификат для `LZT_DOMAIN` (вызывается из `install.sh`). |
-| `update.sh` | Rolling-обновление с health gate + автооткатом. |
-| `rollback.sh` | Откат последнего обновления (код + один шаг миграции + рестарт). |
-| `migrate.sh` | `alembic upgrade head` (идемпотентно). |
-| `seed.sh` | Загрузить записанные страницы каталога офлайн (`--file`) для dev/CI. |
-| `replay.sh` | `--consumer X --from-seq N` — отмотать курсор для бэкфилла. |
-| `redrive.sh` | `--consumer X` — переинжектить dead-lettered события после фикса. |
-| `prune.sh` | Retention: удалить строки event-лога ниже watermark потребителя. |
-| `backup.sh` / `restore.sh` | pg_dump / pg_restore event-лога (обратимо). |
-| `stop.sh` / `restart.sh` / `status.sh` / `logs.sh` | Жизненный цикл + наблюдаемость. |
-| `autoupdate.py` | Config-driven rolling авто-апдейтер (типизирован, покрыт юнит-тестами). |
-| `health.py` | Отдельный probe `/healthz` + `/readyz` (используется гейтом обновления). |
+Оба гасятся через `LZT_WEB_DOCS_ENABLED=false`.
+
+Правило синхронизации wire-контракта с [`lzt-eventus-sdk`](https://github.com/open-lzt/lzt-eventus-sdk) — в [`AGENTS.md`](AGENTS.md).
+
+---
 
 ## Конфигурация
 
-Каждую переменную читает `EngineConfig` с префиксом `LZT_`
-([`src/lzt_eventus/config.py`](src/lzt_eventus/config.py)). Полный аннотированный список —
-в [`.env.example`](.env.example) — скопируй его в `.env`.
+Всё читает `EngineConfig` с префиксом `LZT_`. Аннотированный полный список — в [`.env.example`](.env.example).
 
-Обязательные переменные помечены `*`; у всего остального есть рабочий дефолт.
+Обязательные помечены `*`, у остального рабочий дефолт.
 
 | Переменная | По умолчанию | Значение |
 |---|---|---|
-| `LZT_TOKENS` `*` | `[]` | Токен(ы) lzt.market, JSON-массив. [Получить](https://lzt.market/account/api). |
-| `LZT_ADMIN_API_KEY` `*` | — | Ключ management API. `openssl rand -hex 32`. |
-| `LZT_DATABASE_URL` | `postgresql://…` | DSN Postgres. |
-| `LZT_REDIS_URL` | `redis://localhost:6379/0` | URL Redis. |
-| `LZT_CATEGORIES` | `["steam"]` | Категории для поллинга, JSON-массив. |
-| `LZT_MIN/MAX/DEFAULT_CADENCE` | `6` / `120` / `30` | Границы частоты поллинга, секунды. |
-| `LZT_PER_PAGE` | `50` | Размер страницы каталога. |
-| `LZT_DISAPPEAR_POLLS` | `3` | Пропущенных поллингов до статуса «продан». |
-| `LZT_CONFIRM_BUDGET_FRACTION` / `_BATCH_SIZE` | `0.25` / `50` | Бюджет частоты подтверждения + размер батча. |
-| `LZT_SEEN_TTL_SECONDS` | `86400` | Окно dedup для увиденных лотов. |
-| `LZT_BATCH_SIZE` / `LZT_BATCH_LINGER` | `50` / `0.05` | Батчинг приёма. |
-| `LZT_MAX_HANDLE_ATTEMPTS` | `5` | Доставок до DLQ. |
-| `LZT_RETENTION_MONTHS` | `3` | Retention event-лога. |
-| `LZT_MAX_SINK_LAG` | `100000` | Максимальное отставание потребителя до алармa. |
-| `LZT_WARN_WINDOW_HOURS` | `24` | Окно предупреждения аналитики. |
-| `LZT_DEAL_THRESHOLD` | `0.85` | `price < ai_price * threshold`. |
-| `LZT_HEALTH_HOST` / `_PORT` | `0.0.0.0` / `27543` | HTTP-сервер (`/healthz`, `/metrics`). |
-| `LZT_POSTGRES_PORT` / `LZT_REDIS_PORT` | `27542` / `27541` | Хостовые порты compose (loopback). |
-| `LZT_ADVISORY_LOCK_KEY` / `LZT_RUN_ID` | `1819571811` / `engine` | Выборы единственного писателя + id прогона. |
-| `LZT_MAX_QUERY_LIMIT` | `500` | Максимальный `?limit=` на любом эндпоинте. |
-| `LZT_WEB_DOCS_ENABLED` | `true` | Отдавать `/docs` + `/scalar`. |
+| `LZT_TOKENS` `*` | `[]` | Токен(ы) lzt.market, JSON-массив |
+| `LZT_ADMIN_API_KEY` `*` | — | Ключ management API |
+| `LZT_DATABASE_URL` | `postgresql://…` | DSN Postgres |
+| `LZT_REDIS_URL` | `redis://localhost:6379/0` | URL Redis |
+| `LZT_CATEGORIES` | `["steam"]` | Какие категории поллить |
+| `LZT_MIN/MAX/DEFAULT_CADENCE` | `6` / `120` / `30` | Границы частоты поллинга, секунды |
+| `LZT_PER_PAGE` | `50` | Размер страницы каталога |
+| `LZT_DISAPPEAR_POLLS` | `3` | Сколько поллингов лот должен отсутствовать, чтобы считаться пропавшим |
+| `LZT_CONFIRM_BUDGET_FRACTION` / `_BATCH_SIZE` | `0.25` / `50` | Бюджет и батч подтверждений |
+| `LZT_SEEN_TTL_SECONDS` | `86400` | Окно дедупа увиденных лотов |
+| `LZT_BATCH_SIZE` / `LZT_BATCH_LINGER` | `50` / `0.05` | Батчинг приёма |
+| `LZT_MAX_HANDLE_ATTEMPTS` | `5` | Попыток доставки до DLQ |
+| `LZT_RETENTION_MONTHS` | `3` | Retention event-лога |
+| `LZT_MAX_SINK_LAG` | `100000` | Отставание потребителя до аларма |
+| `LZT_WARN_WINDOW_HOURS` | `24` | Окно предупреждения аналитики |
+| `LZT_DEAL_THRESHOLD` | `0.85` | `price < ai_price * threshold` |
+| `LZT_HEALTH_HOST` / `_PORT` | `0.0.0.0` / `27543` | HTTP-сервер (`/healthz`, `/metrics`) |
+| `LZT_POSTGRES_PORT` / `LZT_REDIS_PORT` | `27542` / `27541` | Хостовые порты compose, на loopback |
+| `LZT_ADVISORY_LOCK_KEY` / `LZT_RUN_ID` | `1819571811` / `engine` | Выборы единственного писателя, id прогона |
+| `LZT_MAX_QUERY_LIMIT` | `500` | Потолок `?limit=` на любом эндпоинте |
+| `LZT_WEB_DOCS_ENABLED` | `true` | Отдавать `/docs` и `/scalar` |
 
-Нестандартный health-порт намеренно — см. [гайд по деплою](docs/deploy.md).
+Порт нестандартный намеренно — см. [гайд по деплою](docs/deploy.md).
 
-## Management API (волна 4)
+---
 
-HTTP API, защищённый admin-ключом, предоставляет управление подписками
-(регистрация/список потребителей, инспекция курсоров и DLQ) плюс `/events/pending` +
-`/events/read_events` для pull-based поллинга (см. [выше](#движок--поллинг-pending-событий-вместо-подписки-без-webhookстрима)).
-Аутентификация через `LZT_ADMIN_API_KEY`, заданный в `.env`. **По дизайну API только
-POST/GET** — никаких PUT/PATCH/DELETE (CI это обеспечивает над `src/lzt_eventus/web`). См.
-[`ROADMAP.md`](ROADMAP.md).
+## Скрипты
 
-См. [`AGENTS.md`](AGENTS.md) для правила синхронизации wire-контракта, применимого к любому
-потребителю этого API в отдельном репозитории (например
-[`lzt-eventus-sdk`](https://github.com/open-lzt/lzt-eventus-sdk)).
+Все под [`scripts/`](scripts/): `set -euo pipefail`, `--help`, идемпотентны.
 
-**Доки.** Движок хостит собственный интерактивный справочник — никакого внешнего
-доксайта, никакого аккаунта на scalar.com:
+| Скрипт | Назначение |
+|---|---|
+| `quickstart.sh` | Интерактивный бутстрап: вопросы → `.env` → `install.sh` → отчёт |
+| `install.sh` | Чистый хост → работающий демон, в один проход |
+| `setup_tls.sh` | nginx + certbot для `LZT_DOMAIN`, вызывается из `install.sh` |
+| `update.sh` | Rolling-обновление с health-gate и автооткатом |
+| `rollback.sh` | Откат последнего обновления: код + один шаг миграции + рестарт |
+| `migrate.sh` | `alembic upgrade head` |
+| `seed.sh` | Загрузить записанные страницы каталога офлайн, для dev/CI |
+| `replay.sh` | `--consumer X --from-seq N` — отмотать курсор для бэкфилла |
+| `redrive.sh` | `--consumer X` — переинжектить события из DLQ после фикса |
+| `prune.sh` | Retention: удалить строки лога ниже watermark потребителя |
+| `backup.sh` / `restore.sh` | pg_dump / pg_restore event-лога |
+| `status.sh` / `logs.sh` / `stop.sh` / `restart.sh` | Жизненный цикл и наблюдаемость |
+| `autoupdate.py` | Rolling авто-апдейтер, конфигурируемый |
+| `health.py` | Отдельный probe `/healthz` + `/readyz`, им гейтится обновление |
 
-- `http://<engine-host>:27543/scalar` — справочник [Scalar](https://github.com/scalar/scalar)
-  (читает `/openapi.json`; каждый роут, DTO и код ошибки выше — просматриваемо/тестируемо).
-- `http://<engine-host>:27543/docs` — Swagger UI (встроенная альтернатива FastAPI).
+Снести всё: `docker compose -f deploy/docker-compose.yml down -v`. Без `-v` данные Postgres и Redis переживут переустановку.
 
-Оба гейтятся `LZT_WEB_DOCS_ENABLED` (по умолчанию `true`) — выставь `false`, чтобы не
-отдавать ни один из них на продакшен-деплое, где не хочешь выставлять doc UI наружу.
+---
 
-## Защита ветки
+## Для AI-агентов
 
-`main` защищена: каждый PR должен пройти CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml) — ruff + ruff format +
-`mypy --strict` + `pytest --cov-fail-under=80` + gitleaks + pip-audit) и получить ревью
-CODEOWNERS перед мержем. Настрой в **Settings → Branches → Branch protection rules**:
-требовать status checks, требовать ревью Code Owner, никаких прямых пушей в `main`.
+Два скилла Claude Code в [`.claude/skills/`](.claude/skills/), чтобы агент не реверсил проект:
 
-## Для AI-агентов, строящих поверх этого репо
+- [`lzt-integration`](.claude/skills/lzt-integration/SKILL.md) — использование: чтение каталога, подписка in-process, приём вебхуков, поллинг.
+- [`lzt-extending`](.claude/skills/lzt-extending/SKILL.md) — расширение ядра наследованием и внедрением: свой тип события, роут, источник, бэкенд хранилища или транспорта, без правки исходников либы.
 
-Два скилла Claude Code лежат в [`.claude/skills/`](.claude/skills/), чтобы агент мог
-освоить поверхность проекта без реверс-инжиниринга:
+---
 
-- [`lzt-integration`](.claude/skills/lzt-integration/SKILL.md) — **использование**
-  библиотеки: чтение каталога через `Client`, подписка in-process через плагин
-  `BaseModule`, приём подписанных вебхуков, либо поллинг `/events/pending` как
-  pull-based альтернатива.
-- [`lzt-extending`](.claude/skills/lzt-extending/SKILL.md) — **расширение ядра** через
-  наследование + внедрение (новый тип события, роут, источник, бэкенд хранилища/транспорта)
-  без правки исходников библиотеки.
+## Контрибьютинг
 
-## Статус и контрибьютинг
+`main` защищена: PR обязан пройти CI ([ruff, ruff format, `mypy --strict`, `pytest --cov-fail-under=80`, gitleaks, pip-audit](.github/workflows/ci.yml)) и ревью CODEOWNERS.
 
-См. [`docs/architecture.md`](docs/architecture.md) для текущей архитектуры и
-[`ROADMAP.md`](ROADMAP.md) для охвата и non-goals. Настройка контрибьютинга, локальный
-CI floor и конвенции — в [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-## Сообщество
-
-См. [CONTRIBUTING.md](CONTRIBUTING.md) для гайдлайнов и того, как отправлять PR. Используй
-[issues](https://github.com/open-lzt/lzt-eventus/issues/new/choose) для багов и запросов
-фич.
+Конвенции и локальный CI-порог — [`CONTRIBUTING.md`](CONTRIBUTING.md). Охват и non-goals — [`ROADMAP.md`](ROADMAP.md). Баги и запросы фич — [issues](https://github.com/open-lzt/lzt-eventus/issues/new/choose).
 
 <a href="https://github.com/zlexdev"><img src="https://github.com/zlexdev.png" width="48" height="48" style="border-radius:50%" alt="zlexdev"></a>
 
-## Лицензия и правовая информация
+## Лицензия
 
-[MIT](LICENSE). Прочитай [дисклеймер legal / ToS](docs/legal.md) перед использованием —
-только чтение каталога + автоматизация аналитики; ты отвечаешь за соблюдение условий
-использования lzt.market.
+[MIT](LICENSE). Перед использованием прочитай [дисклеймер legal / ToS](docs/legal.md) — только чтение каталога и автоматизация аналитики; за соблюдение условий lzt.market отвечаешь ты.
